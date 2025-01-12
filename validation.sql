@@ -1,6 +1,6 @@
 // validation to check all the mandatory fields are not blank
 SELECT *
-FROM Staging_Table
+FROM Stage_Table
 WHERE Customer_Name IS NULL 
 OR Customer_ID IS NULL 
 OR Open_Date IS NULL;
