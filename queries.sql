@@ -11,23 +11,22 @@ State CHAR(5),
 Country CHAR(5),
 PostAL_Code INT,
 DOB DATE,
-Act_Cust CHAR(1) CHECK (Is_Active IN ('A', 'I')), -- 'A' for active, 'I' for inactive
+Act_Cust CHAR(1) CHECK (Act_Cust IN ('A', 'I')), -- 'A' for active, 'I' for inactive
 Record_Type CHAR(1) NOT NULL CHECK (Record_Type IN ('H', 'D')) -- Header or Detail
 );
 
 //Below procedure will create all country tables  with the use of staging table country column and also loading the data into each country table
   
 CREATE OR REPLACE PROCEDURE load_data_dynamically()
-RETURNS STRING
+RETURNS varchar(1000)
 LANGUAGE JAVASCRIPT
 EXECUTE AS OWNER
 AS $$
-BEGIN
-    let result = snowflake.execute(`SELECT DISTINCT Country FROM stage_table`);
+    var result = snowflake.execute(`SELECT DISTINCT Country FROM stage_table`);
     while (result.next()) {
-        let country = result.getColumnValue(1);
-        let createTable = `
-            CREATE TABLE IF NOT EXISTS country_${country} (
+        var country = result.getColumnValue(1);
+        var createTable = `
+            CREATE OR REPLACE TABLE country_${country} (
                 Customer_Name VARCHAR(255),
                 Customer_ID VARCHAR(18),
                 Open_Date DATE,
@@ -40,11 +39,11 @@ BEGIN
                 DOB DATE,
                 Act_Cust CHAR(1),
                 Age INT,
-                Days_Since_Last_Consulted INT
+                Days_Since_Last_Consulted varchar(100)
             )`;
         snowflake.execute(createTable);
         
-        let loadData = `
+        var loadData = `
             MERGE INTO country_${country} AS target
             USING (
                 SELECT *,
@@ -64,15 +63,15 @@ BEGIN
                 INSERT (
                     Customer_Name, Customer_ID, Open_Date, Last_Consulted_Date,
                     Vaccination_ID, Doctor_Name, State, Country, Post_Code,
-                    DOB, Is_Active, Age, Days_Since_Last_Consulted
+                    DOB, Act_Cust, Age, Days_Since_Last_Consulted
                 )
                 VALUES (
                     source.Customer_Name, source.Customer_ID, source.Open_Date, source.Last_Consulted_Date,
                     source.Vaccination_ID, source.Doctor_Name, source.State, source.Country, source.Post_Code,
-                    source.DOB, source.Is_Active, source.Age, source.Days_Since_Last_Consulted
+                    source.DOB, source.Act_Cust, source.Age, source.Days_Since_Last_Consulted
                 )`;
         snowflake.execute(loadData);
     }
-    return 'Dynamic loading complete';
-END;
+    return 'Country tables creation and loading completed...';
+
 $$;
