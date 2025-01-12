@@ -15,64 +15,64 @@ Act_Cust CHAR(1) CHECK (Is_Active IN ('A', 'I')), -- 'A' for active, 'I' for ina
 Record_Type CHAR(1) NOT NULL CHECK (Record_Type IN ('H', 'D')) -- Header or Detail
 );
 
-//Below procedure will create all country tables with the use of staging table country column
+//Below procedure will create all country tables  with the use of staging table country column and also loading the data into each country table
   
-CREATE OR REPLACE PROCEDURE create_country_tables()
+CREATE OR REPLACE PROCEDURE load_data_dynamically()
 RETURNS STRING
 LANGUAGE JAVASCRIPT
 EXECUTE AS OWNER
-AS
-$$
-{
-    var country_list = [];
-    
-    // Step 1: Fetch the unique countries from the Stage_Table
-    var result = snowflake.createStatement({
-        sqlText: `
-            SELECT DISTINCT Country 
-            FROM Stage_Table
-            WHERE Country IS NOT NULL
-        `
-    }).execute();
-
+AS $$
+BEGIN
+    let result = snowflake.execute(`SELECT DISTINCT Country FROM stage_table`);
     while (result.next()) {
-        country_list.push(result.getColumnValue(1));
-    }
-    
-    // Step 2: Loop through each country and create a country-specific table
-    country_list.forEach((country) => {
-        var table_name = `Table_${country}`;
-        
-        var create_table_query = `
-            CREATE OR REPLACE TABLE ${table_name} (
-                Customer_Name VARCHAR(255) NOT NULL,
-                Customer_ID VARCHAR(18) NOT NULL PRIMARY KEY,
-                Open_Date DATE NOT NULL,
+        let country = result.getColumnValue(1);
+        let createTable = `
+            CREATE TABLE IF NOT EXISTS country_${country} (
+                Customer_Name VARCHAR(255),
+                Customer_ID VARCHAR(18),
+                Open_Date DATE,
                 Last_Consulted_Date DATE,
                 Vaccination_ID CHAR(5),
                 Doctor_Name VARCHAR(255),
                 State CHAR(5),
-                Postal_Code INT,
+                Country CHAR(5),
+                Post_Code INT,
                 DOB DATE,
-                Act_Cust CHAR(1) CHECK (Is_Active IN ('A', 'I')),
-                Age INT AS (DATEDIFF('year', DOB, CURRENT_DATE())), -- Derived column: Age
-                Days_Since_Last_Consulted_Over_30 STRING AS 
-                    CASE 
+                Act_Cust CHAR(1),
+                Age INT,
+                Days_Since_Last_Consulted INT
+            )`;
+        snowflake.execute(createTable);
+        
+        let loadData = `
+            MERGE INTO country_${country} AS target
+            USING (
+                SELECT *,
+                       DATEDIFF(YEAR, DOB, CURRENT_DATE) AS Age,
+                       CASE 
                         WHEN DATEDIFF('day', Last_Consulted_Date, CURRENT_DATE()) > 30 THEN 'YES'
                         ELSE 'NO'
-                    END -- Derived column: Days since last consulted > 30
-            );
-        `;
-        
-        // Execute the create table query
-        snowflake.createStatement({
-            sqlText: create_table_query
-        }).execute();
-    });
-
-   
-    return `Country-specific tables are created successfully for ${country_list.length} countries: ${country_list.join(', ')}`;
-}
+                    END AS Days_Since_Last_Consulted
+                FROM validated_table
+                WHERE Country = '${country}'
+            ) AS source
+            ON target.Customer_ID = source.Customer_ID
+            WHEN MATCHED THEN
+                UPDATE SET
+                    Last_Consulted_Date = source.Last_Consulted_Date
+            WHEN NOT MATCHED THEN
+                INSERT (
+                    Customer_Name, Customer_ID, Open_Date, Last_Consulted_Date,
+                    Vaccination_ID, Doctor_Name, State, Country, Post_Code,
+                    DOB, Is_Active, Age, Days_Since_Last_Consulted
+                )
+                VALUES (
+                    source.Customer_Name, source.Customer_ID, source.Open_Date, source.Last_Consulted_Date,
+                    source.Vaccination_ID, source.Doctor_Name, source.State, source.Country, source.Post_Code,
+                    source.DOB, source.Is_Active, source.Age, source.Days_Since_Last_Consulted
+                )`;
+        snowflake.execute(loadData);
+    }
+    return 'Dynamic loading complete';
+END;
 $$;
-
-
